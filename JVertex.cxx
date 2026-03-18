@@ -1,65 +1,46 @@
-#include <cstdlib>
-#include <TF1.h>
-#include <TFile.h>
-#include "Math/MinimizerOptions.h"
-#include "Math/Minimizer.h"
-#include "Math/Factory.h"
-#include "Math/Functor.h"
-#include "JUNO_PMTs.h"
+#include "JVertex.h"
 
-class JVertex {
+std::tuple <float,float,float> JVertex::GetEventPosition() {
+	
+	double xiqi = 0,yiqi = 0, ziqi = 0;
+	double XCb,YCb,ZCb;
 
-	private :
-		std::vector <float> m_Times;
-		std::vector <int> m_PMTID;
-		std::vector <float> m_Charge;
-		float m_nEff;
-		std::string m_PdfPath;
-		JUNO_PMTs m_JUNO_PMTs;
+	double RecoPositionX, RecoPositionY, RecoPositionZ, Jt0, LogLikelihood, MinuitFlag;
 
-		std::array<std::unique_ptr<TF1>, 10> m_PDFs_perhit{};
+	bool pmtCut = true;
 
-	public :
+	// Calculate charge barycenter
 
-		JVertex(float nEff, std::string PdfPath, std::string PMTFile) :
-			m_nEff{nEff},
-			m_PdfPath{PdfPath},
-			m_JUNO_PMTs {PMTFile} {
-				JVertex::FillPDFs();
-			};
+	double totalcharge = 0.;
 
-		JVertex(float nEff, std::string PdfPath, std::string PMTFile, std::vector <float> Times,
-				 std::vector<int> PMTID, std::vector <float> Charge) :
-			m_Times{Times},
-			m_PMTID{PMTID},
-			m_nEff{nEff},
-			m_PdfPath{PdfPath},
-			m_Charge{Charge} ,
-			m_JUNO_PMTs{PMTFile} {
-				JVertex::FillPDFs();
-			};
+	for (int j = 0; j < m_Charge.size(); j++) {
 
-		~JVertex() = default;
-		JVertex(JVertex const& other) = delete;
-		JVertex(JVertex && other) noexcept = default;
-		JVertex& operator=(JVertex const& other) = delete;
-		JVertex& operator=(JVertex&& other) noexcept = default;
+		double x_pmt = m_JUNO_PMTs.GetX(m_PMTID[j]);
+		double y_pmt = m_JUNO_PMTs.GetY(m_PMTID[j]);
+		double z_pmt = m_JUNO_PMTs.GetZ(m_PMTID[j]);
 
-		void FillPDFs();
-		double NLL(const Double_t *par);
-		void InitializeMinuit (double StartingPointX, double StartingPointY, double StartingPointZ, double& RecoPositionX,
-							 double& RecoPositionY, double& RecoPositionZ, double& Jt0, double totalPE, double& Jlkl, double& Jflag);
+		double charge = m_Charge[j];
+		xiqi += x_pmt*charge;
+		yiqi += y_pmt*charge;
+		ziqi += z_pmt*charge;
 
-		void ChangeEvent (std::vector <float> Times, std::vector <int> PMTID, std::vector <float> Charge) {
-			m_Times = Times;
-			m_PMTID = PMTID;
-			m_Charge = Charge;
-			return;
-		};
-
-		std::tuple <float,float,float> GetEventPosition();
+		totalcharge += charge;
 		
-};
+	}
+
+	//calculating the center of mass coordinates for the first guess 
+	XCb = xiqi/totalcharge;
+	YCb = yiqi/totalcharge;
+	ZCb = ziqi/totalcharge;
+
+	//Minimizing function
+	InitializeMinuit(XCb,YCb,ZCb,RecoPositionX,RecoPositionY,RecoPositionZ, Jt0, totalcharge, LogLikelihood, MinuitFlag);
+
+	//std::cout << "Reconstructed event position = ( " << RecoPositionX << " , " << RecoPositionY << " , " << RecoPositionZ << " )" << std::endl; 
+
+	return std::make_tuple ((float) RecoPositionX, (float) RecoPositionY, (float) RecoPositionZ); 
+}
+
 
 void JVertex::FillPDFs() {
 	TFile* Time_PDFs = TFile::Open(m_PdfPath.c_str());
@@ -217,8 +198,7 @@ void JVertex::InitializeMinuit(double StartingPointX, double StartingPointY, dou
     	}
 
     	validity_check = (status == 0 || status == 1);
-    	std::cout << "Validity check = " << validity_check << " with tolerance " << tol_list[iteration] << std::endl;
-    	//LogInfo << "\t\tLog = " << bestF << std::endl;
+    	//std::cout << "Validity check = " << validity_check << " with tolerance " << tol_list[iteration] << std::endl;
     	if (validity_check) break;
     
   	}
@@ -241,46 +221,4 @@ void JVertex::InitializeMinuit(double StartingPointX, double StartingPointY, dou
   	delete minSimplex;
   	delete minMigrad;
 }
-
-std::tuple <float,float,float> JVertex::GetEventPosition() {
-	
-	double xiqi = 0,yiqi = 0, ziqi = 0;
-	double XCb,YCb,ZCb;
-
-	double RecoPositionX, RecoPositionY, RecoPositionZ, Jt0, LogLikelihood, MinuitFlag;
-
-	bool pmtCut = true;
-
-	// Calculate charge barycenter
-
-	double totalcharge = 0.;
-
-	for (int j = 0; j < m_Charge.size(); j++) {
-
-		double x_pmt = m_JUNO_PMTs.GetX(m_PMTID[j]);
-		double y_pmt = m_JUNO_PMTs.GetY(m_PMTID[j]);
-		double z_pmt = m_JUNO_PMTs.GetZ(m_PMTID[j]);
-
-		double charge = m_Charge[j];
-		xiqi += x_pmt*charge;
-		yiqi += y_pmt*charge;
-		ziqi += z_pmt*charge;
-
-		totalcharge += charge;
-		
-	}
-
-	//calculating the center of mass coordinates for the first guess 
-	XCb = xiqi/totalcharge;
-	YCb = yiqi/totalcharge;
-	ZCb = ziqi/totalcharge;
-
-	//Minimizing function
-	InitializeMinuit(XCb,YCb,ZCb,RecoPositionX,RecoPositionY,RecoPositionZ, Jt0, totalcharge, LogLikelihood, MinuitFlag);
-
-	std::cout << "Reconstructed event position = ( " << RecoPositionX << " , " << RecoPositionY << " , " << RecoPositionZ << " )" << std::endl; 
-
-	return std::make_tuple ((float) RecoPositionX, (float) RecoPositionY, (float) RecoPositionZ); 
-}
-
 
